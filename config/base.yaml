@@ -1,0 +1,37 @@
+project:
+  name: model-tailor
+  seed: 42
+
+paths:
+  data_raw: data/raw
+  data_curated: data/curated
+  data_formatted: data/formatted
+  data_seeds: data/seeds
+  models: models
+  checkpoints: checkpoints
+
+teacher:
+  provider: anthropic      # openai | anthropic | gemini | glm | ollama
+  model: claude-sonnet-4-6
+  temperature: 0.7
+  max_tokens: 2048
+  ollama_base_url: http://localhost:11434  # only used when provider: ollama
+
+defaults:
+  model_family: llama     # llama | mistral | phi
+  base_model: unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit
+  split_ratios: [0.8, 0.1, 0.1]
+  batch_size: 2           # reduced from 4 for RTX 3070 Ti (8.6 GB VRAM)
+  num_epochs: 3
+  learning_rate: 2.0e-4
+  lora_rank: 16
+  lora_alpha: 16
+  max_seq_length: 2048    # reduced from 4096; SQL examples rarely exceed 2048 tokens
+
+wandb:
+  project: model-tailor
+  log_model: false
+
+mlflow:
+  tracking_uri: http://localhost:5000
+  experiment_name: model-tailor

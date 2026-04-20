@@ -1,0 +1,227 @@
+# Notebook Guide
+
+This guide explains the purpose of each notebook and when to run them.
+
+## Notebook Categories
+
+### Category 1: Pipeline Walkthrough (Notebooks 01-06)
+
+**Purpose**: Educational/demonstration notebooks that show how each pipeline stage works.
+
+**When to use**:
+- Learning the pipeline for the first time
+- Understanding how each module works
+- Developing new features or debugging issues
+- **NOT for production runs on completed data**
+
+**Notebooks**:
+
+| Notebook | Purpose | Runs From Scratch? |
+|----------|---------|---------------------|
+| `01_generate.ipynb` | Demonstrates data generation | ✅ Yes - will overwrite existing data |
+| `02_curate.ipynb` | Demonstrates data curation | ✅ Yes - will overwrite curated data |
+| `03_format.ipynb` | Demonstrates formatting for training | ✅ Yes - will overwrite formatted data |
+| `04_train.ipynb` | Demonstrates QLoRA training | ✅ Yes - will overwrite trained model |
+| `05_evaluate.ipynb` | Demonstrates evaluation metrics | ✅ Yes - will regenerate results |
+| `06_deploy.ipynb` | Demonstrates deployment | ✅ Yes - will overwrite exports |
+
+**Warning**: These notebooks do NOT check for existing work. Running them will regenerate data, retrain models, and overwrite existing artifacts.
+
+---
+
+### Category 2: Evaluation & Comparison (Notebook 07)
+
+**Purpose**: Compare trained student model against teacher model.
+
+**When to use**: After training is complete (Task 6)
+
+**Notebooks**:
+
+| Notebook | Teacher Model | API Required |
+|----------|--------------|--------------|
+| `07_comparison_glm.ipynb` | GLM 4.6 | GLM API key |
+| `07_comparison_anthropic.ipynb` | Claude Sonnet 4.6 | Anthropic API key |
+| `07_comparison_gemini.ipynb` | Gemini 2.0 Flash | Gemini API key |
+
+**What these notebooks do**:
+- Load existing trained model from `models/sql-llama-8b-lora/`
+- Load existing test data from `data/curated/test.jsonl`
+- Evaluate both models on the same test set
+- Generate comparison metrics and visualizations
+- Calculate cost-effectiveness and break-even analysis
+- Provide deployment recommendations
+
+**Safe to run**: These notebooks only read existing artifacts and generate NEW comparison results. They will NOT overwrite your trained model or data.
+
+---
+
+## When to Run Which Notebooks
+
+### First Time Setup (Learning the Pipeline)
+
+Run notebooks 01-06 in order to understand how everything works:
+
+```bash
+jupyter notebook notebooks/01_generate.ipynb
+jupyter notebook notebooks/02_curate.ipynb
+jupyter notebook notebooks/03_format.ipynb
+jupyter notebook notebooks/04_train.ipynb
+jupyter notebook notebooks/05_evaluate.ipynb
+jupyter notebook notebooks/06_deploy.ipynb
+```
+
+**Note**: This will generate NEW data, train a NEW model, and use API credits. Only do this for learning purposes.
+
+---
+
+### After Training is Complete (Current Status)
+
+**ONLY run the comparison notebook** that matches your API access:
+
+**If you have GLM API:**
+```bash
+jupyter notebook notebooks/07_comparison_glm.ipynb
+```
+
+**If you have Anthropic API:**
+```bash
+jupyter notebook notebooks/07_comparison_anthropic.ipynb
+```
+
+**If you have Gemini API:**
+```bash
+jupyter notebook notebooks/07_comparison_gemini.ipynb
+```
+
+**DO NOT run notebooks 01-06** - they will overwrite your completed work!
+
+---
+
+### Starting Fresh (New Training Run)
+
+If you want to start from scratch with new data:
+
+1. Run the pipeline using scripts instead of notebooks:
+   ```bash
+   python -m src.generate.batch
+   python -m src.curate.pipeline
+   python -m src.format.pipeline
+   python scripts/train_simple.py
+   ```
+
+2. Or use notebooks 01-06 (understanding they will regenerate everything)
+
+3. Then run the appropriate comparison notebook (07)
+
+---
+
+## Quick Reference
+
+### I want to...
+
+| Goal | Which Notebook(s) | Notes |
+|------|-------------------|-------|
+| Learn how generation works | `01_generate.ipynb` | Will regenerate data |
+| Learn how curation works | `02_curate.ipynb` | Will overwrite curated data |
+| Learn how training works | `04_train.ipynb` | Will retrain model |
+| Evaluate my trained model | `07_comparison_*.ipynb` | Safe - uses existing artifacts |
+| Start completely fresh | Scripts or notebooks 01-06 | Will overwrite everything |
+
+### Current Project Status (2026-04-19)
+
+- ✅ Tasks 1-5: COMPLETE
+- ⏳ Task 6: IN PROGRESS (evaluation with API billing issues)
+  - GLM API: Balance insufficient (Z.ai coding plan ≠ API credits)
+  - Anthropic API: Available, use `07_comparison_anthropic.ipynb`
+- ⏸️ Tasks 7-8: PENDING
+
+**Recommended action**: Choose based on your API access:
+- **Anthropic**: Add credits, run `07_comparison_anthropic.ipynb`
+- **Gemini**: Add API key to `.env`, run `07_comparison_gemini.ipynb`
+- **GLM**: Add credits, run `07_comparison_glm.ipynb`
+
+**Note**: All comparison notebooks have been updated with:
+- Field name fixes (`natural_language` instead of `nl`)
+- Absolute path handling (works from any directory)
+- CPU-only loading for student model (RTX 3070 Ti VRAM constraint)
+
+---
+
+## File Artifacts Generated by Each Stage
+
+| Stage | Output Files | Should I Regenerate? |
+|-------|-------------|----------------------|
+| 01_generate | `data/raw/*.jsonl` | Only if starting fresh |
+| 02_curate | `data/curated/*.jsonl` | Only if starting fresh |
+| 03_format | `data/formatted/*.jsonl` | Only if starting fresh |
+| 04_train | `models/sql-llama-8b-lora/` | Only if starting fresh |
+| 05_evaluate | Various metrics | Only if starting fresh |
+| 06_deploy | `models/*.gguf` | Only if starting fresh |
+| 07_comparison_* | `comparison_results_*.json`, `comparison_visualization_*.png` | YES - safe to regenerate |
+
+---
+
+## Common Issues and Fixes
+
+### NLTK Import Hang
+**Symptom:** Import cell hangs for 2+ minutes with no output
+**Cause:** NLTK downloading data on first import
+**Fix:** Run this before importing metrics:
+```python
+import nltk
+nltk.download('punkt', quiet=True)
+nltk.download('punkt_tab', quiet=True)
+```
+
+### FileNotFoundError for data files
+**Symptom:** `FileNotFoundError: [Errno 2] No such file or directory: 'data/curated/test.jsonl'`
+**Cause:** Working directory issue or cell order problem
+**Fix:** Ensure cell 1 (imports + PROJECT_ROOT) runs before cell 3 (load data)
+
+### HuggingFace Access Denied
+**Symptom:** `OSError: meta-llama/Llama-3.1-8B requires you to execute the acceptance form`
+**Fix:** 
+1. Accept license at https://huggingface.co/meta-llama/Llama-3.1-8B
+2. Set `HF_TOKEN` in `.env`
+
+---
+
+## Safety Checks
+
+1. **Does this notebook generate data/models?**
+   - If yes: Will it overwrite work I want to keep?
+
+2. **Do I have API credits to spare?**
+   - Generation notebooks use API calls
+
+3. **Is my trained model already good enough?**
+   - Retraining takes 10+ minutes and may not improve results
+
+4. **Am I learning or producing?**
+   - Learning: Notebooks 01-06 are fine
+   - Producing: Use scripts or only run evaluation (07)
+
+
+### Current Project Status (2026-04-20)
+
+- ✅ Tasks 1-5: COMPLETE
+- ✅ Task 6: PARTIAL - Teacher evaluation complete (Sonnet 4.6, $0.033, 14 examples)
+- ⏸️ Student evaluation: Requires 16GB+ RAM or cloud GPU
+- ⏸️ Tasks 7-8: PENDING
+
+**Available Notebooks:**
+| Notebook | Purpose | Status | Notes |
+|----------|---------|--------|-------|
+| `08_teacher_evaluation_anthropic.ipynb` | Teacher-only evaluation | ✅ Ready | Lightweight, ~$0.02, no model loading |
+| `09_student_evaluation.ipynb` | Student-only evaluation | ❌ Not created | Requires 16GB+ RAM |
+| `10_comparison_from_results.ipynb` | Load and compare results | ✅ Ready | For after both evaluations complete |
+
+**Hardware Constraints:**
+- RTX 3070 Ti (8GB VRAM): Insufficient for Llama 3.1 8B inference
+- Student model requires ~16GB RAM for CPU-only loading
+- Current setup proves teacher evaluation works; student evaluation requires cloud GPU or machine upgrade
+
+**Next Steps:**
+1. Add credits to API account (Anthropic, Gemini, or GLM)
+2. Run appropriate evaluation notebook based on API access
+3. For student evaluation: Use cloud GPU (RunPod, Lambda Labs) or machine with 16GB+ RAM

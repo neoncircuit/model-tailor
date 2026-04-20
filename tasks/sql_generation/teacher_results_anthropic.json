@@ -1,0 +1,33 @@
+{
+  "metadata": {
+    "test_examples": 14,
+    "teacher_model": "claude-sonnet-4-6",
+    "timestamp": "2026-04-20 20:38:33"
+  },
+  "teacher": {
+    "predictions": [
+      "SELECT AVG(salary) AS average_salary\nFROM employees",
+      "SELECT \n    c.customer_id,\n    c.first_name,\n    c.last_name,\n    c.email,\n    COUNT(o.order_id) AS total_orders,\n    SUM(o.total_amount) AS total_spent,\n    AVG(o.total_amount) AS average_order_value\nFROM \n    customers c\nJOIN \n    orders o ON c.customer_id = o.customer_id\nGROUP BY \n    c.customer_id,\n    c.first_name,\n    c.last_name,\n    c.email\nORDER BY \n    average_order_value DESC\nLIMIT 5",
+      "SELECT DISTINCT c.name, c.email\nFROM customers c\nJOIN orders o ON c.customer_id = o.customer_id\nWHERE c.state = 'California'\nAND o.status = 'delivered'",
+      "SELECT \n    p.product_name,\n    p.category,\n    p.stock\nFROM products p\nLEFT JOIN orders o ON p.product_id = o.product_id\nWHERE o.product_id IS NULL",
+      "SELECT device_type, SUM(page_views) AS total_page_views\nFROM sessions\nGROUP BY device_type",
+      "SELECT \n    c.customer_id,\n    c.customer_name,\n    COUNT(DISTINCT o.order_id) AS total_orders,\n    COUNT(DISTINCT oi.product_id) AS distinct_products,\n    SUM(oi.quantity * oi.unit_price) AS total_spending\nFROM customers c\nJOIN orders o ON c.customer_id = o.customer_id\nJOIN order_items oi ON o.order_id = oi.order_id\nWHERE o.status = 'delivered'\nGROUP BY c.customer_id, c.customer_name\nHAVING COUNT(DISTINCT o.order_id) > 5\nORDER BY total_orders DESC\nLIMIT 5",
+      "SELECT department, COUNT(*) AS employee_count\nFROM employees\nGROUP BY department",
+      "UPDATE employees\nSET manager_id = 17\nWHERE manager_id = 42\n  AND department_id IN (\n    SELECT department_id\n    FROM employees\n    GROUP BY department_id\n    HAVING COUNT(*) > 3\n  )",
+      "SELECT \n    c.customer_id,\n    c.first_name,\n    c.last_name,\n    c.email,\n    c.state,\n    SUM(o.total_amount) AS total_spent\nFROM customers c\nJOIN orders o ON c.customer_id = o.customer_id\nWHERE c.state = 'California'\nGROUP BY \n    c.customer_id,\n    c.first_name,\n    c.last_name,\n    c.email,\n    c.state\nHAVING SUM(o.total_amount) > 500\nORDER BY total_spent DESC",
+      "UPDATE employees\nSET salary = salary * 1.10\nWHERE department = 'Engineering'",
+      "WITH monthly_revenue AS (\n    SELECT\n        DATE_TRUNC('month', order_date) AS month,\n        SUM(total_amount) AS total_revenue\n    FROM orders\n    GROUP BY DATE_TRUNC('month', order_date)\n)\nSELECT\n    month,\n    total_revenue,\n    total_revenue - LAG(total_revenue) OVER (ORDER BY month) AS revenue_difference,\n    ROUND(\n        (total_revenue - LAG(total_revenue) OVER (ORDER BY month)) * 100.0 /\n        NULLIF(LAG(total_revenue) OVER (ORDER BY month), 0),\n        2\n    ) AS percentage_change\nFROM monthly_revenue\nORDER BY month",
+      "UPDATE orders\nSET status = 'cancelled'\nWHERE order_id IN (\n    SELECT order_id\n    FROM orders\n    WHERE status = 'pending'\n      AND customer_id IN (\n          SELECT DISTINCT customer_id\n          FROM orders\n          WHERE status = 'delivered'\n      )\n    ORDER BY order_date ASC\n    LIMIT 10 OFFSET 1\n)",
+      "SELECT \n    e.name AS employee_name,\n    e.salary AS employee_salary,\n    m.name AS manager_name,\n    m.salary AS manager_salary\nFROM employees e\nJOIN employees m ON e.manager_id = m.id\nWHERE e.salary > m.salary",
+      "SELECT COUNT(*) AS shipped_orders\nFROM orders\nWHERE status = 'shipped'"
+    ],
+    "elapsed_seconds": 59.44,
+    "cost_breakdown": {
+      "input_tokens": 643,
+      "output_tokens": 2071,
+      "input_cost_usd": 0.0019,
+      "output_cost_usd": 0.0311,
+      "total_cost_usd": 0.033
+    }
+  }
+}

@@ -1,0 +1,58 @@
+# Environment
+.env
+.venv/
+venv/
+env/
+.envrc
+.direnv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ML artifacts
+models/
+checkpoints/
+wandb/
+runs/
+*.gguf
+*.bin
+*.safetensors
+*.pt
+*.pth
+
+# Data (keep structure via .gitkeep)
+data/raw/*.jsonl
+data/curated/*.jsonl
+data/formatted/*.jsonl
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# MLFlow
+mlruns/
+mlflow.db
+
+# Logs
+*.log
+logs/
+
+# Claude
+.claude/
+
+# Unsloth
+unsloth_compiled_cache/

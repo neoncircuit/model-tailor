@@ -1,0 +1,50 @@
+task:
+  name: sql_generation
+  description: "Natural language to SQL query generation"
+
+generation:
+  num_examples: 5000
+  batch_size: 10
+  max_concurrency: 5
+  seed_file: tasks/sql_generation/seeds.jsonl
+  schema_file: tasks/sql_generation/schemas.sql
+  output_dir: data/raw
+  output_filename: generated.jsonl
+  strategies:
+    - seed_expansion
+    - self_instruct
+    - evol_instruct
+  strategy_weights:
+    seed_expansion: 0.4         # Reliable quality, close to proven patterns
+    self_instruct: 0.3          # Broad coverage across tables and categories
+    evol_instruct: 0.3          # Hard/expert complexity evolved from easy seeds
+  temperature: 0.7
+
+  difficulty_distribution:
+    easy: 0.3       # Single table, basic WHERE
+    medium: 0.4     # JOINs, GROUP BY, HAVING
+    hard: 0.2       # Subqueries, window functions, CTEs
+    expert: 0.1     # Complex multi-step reasoning
+
+  categories:
+    - select
+    - aggregate
+    - join
+    - subquery
+    - window_function
+    - insert
+    - update
+    - delete
+
+curation:
+  min_query_length: 10
+  max_query_length: 500
+  require_valid_sql: true
+  dedup_threshold: 0.85
+
+evaluation:
+  execution_accuracy: true   # Run SQL against DB and compare results
+  exact_match: true
+  llm_judge: true
+  judge_model: gpt-4o-mini
+  test_db: tasks/sql_generation/schemas.sql

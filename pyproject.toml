@@ -1,0 +1,16 @@
+[project]
+name = "model-tailor"
+version = "0.1.0"
+description = "Fine-tune small language models to match GPT-4 quality at <1% of the cost"
+requires-python = ">=3.10"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

@@ -122,7 +122,7 @@ Evolved (hard, added JOIN + window function):
 
 **Source**: `src/generate/quality.py::QualityChecker`
 
-All strategies pass their output through a three-layer quality check:
+All strategies pass their output through a three-layer quality check, optionally followed by an execution correctness gate and a repair/fixer loop:
 
 ```mermaid
 flowchart LR
@@ -157,8 +157,36 @@ flowchart LR
     end
 
     L3 -- "Score < 3.0" --> Reject3([Rejected])
-    L3 -- "Score >= 3.0" --> Accept([Accepted])
+    L3 -- "Score >= 3.0" --> Gate
+
+    subgraph Gate ["Execution Correctness Gate"]
+        direction TB
+        G1["Materialise SQLite DB"]
+        G2["Execute predicted SQL"]
+        G3["Compare result sets\n(if target available)"]
+    end
+
+    Gate -- "passed" --> Accept([Accepted])
+    Gate -- "failed" --> Repair["Repair / Fixer\n(teacher model)"]
+    Repair --> Gate
+    Gate -- "still failed" --> Reject4([Rejected])
 ```
+
+The execution gate and repair loop are controlled from `config/tasks/sql_generation.yaml`:
+
+```yaml
+generation:
+  execution_gate:
+    enabled: true
+    timeout: 5.0
+    allow_empty_result: false
+  repair:
+    enabled: true
+    max_attempts: 2
+    repair_batch_size: 5
+```
+
+When enabled, every generated example that survives the three-layer quality check is executed against the task schema. Failures are routed to the repair/fixer, which asks the teacher model to correct the SQL using the gate feedback. Examples that still fail after the maximum number of repair attempts are saved to a separate rejected file for analysis.
 
 ### Layer 1: Heuristic Checks (free)
 - NL length within bounds (10-500 chars)

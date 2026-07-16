@@ -297,9 +297,9 @@ sqlite3 tasks/sql_generation/test.db < tasks/sql_generation/schemas.sql
 Evaluate the fine-tuned model:
 
 ```python
-from src.evaluate import BenchmarkRunner, BenchmarkResults
 from src.evaluate import exact_match, bleu_score, sql_execution_accuracy, evaluate_batch
-from src.evaluate import LLMJudge
+from src.evaluate.benchmark import BenchmarkRunner, BenchmarkResults
+from src.evaluate.judge import LLMJudge
 
 # Load test data
 import json

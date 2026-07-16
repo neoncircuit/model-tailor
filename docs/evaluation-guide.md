@@ -73,6 +73,39 @@ score = sql_execution_accuracy(
 
 This catches cases where the SQL is written differently but produces identical results. It also catches cases where the SQL looks similar but produces different results.
 
+## Execution Correctness Gate
+
+**Source**: `src/evaluate/gate.py`
+
+For batch evaluation and generation filtering, the execution gate provides a reusable pass/fail oracle with failure classification. It materialises a fresh SQLite database from a DDL schema, executes the predicted query with a timeout, and compares result sets when a reference query is available.
+
+```python
+from src.evaluate.gate import ExecutionGate
+
+gate = ExecutionGate(
+    schema_sql_path="tasks/sql_generation/schemas.sql",
+    timeout=5.0,
+    allow_empty_result=False,
+)
+
+records = [
+    {"natural_language": "Get all users", "sql": "SELECT * FROM users;", "target_sql": "SELECT * FROM users;"},
+]
+results = gate.check_batch(records)
+for record, result in zip(records, results):
+    print(f"{result.summary()}: {record['sql']}")
+```
+
+Failure classifications:
+
+- `passed` — query executed and result set matches the target (or execution alone is sufficient when no target is supplied)
+- `syntax_error` — query is empty or could not be parsed
+- `execution_error` — query failed at runtime (missing table, missing column, etc.)
+- `wrong_result` — query executed but returned a different result set than the target
+- `timeout` — query did not finish within the configured timeout
+- `empty_result` — query returned zero rows and `allow_empty_result=False`
+- `unsafe` — query contains forbidden keywords such as `DROP`, `ALTER`, or `PRAGMA`
+
 ### Batch Evaluation
 
 Run all selected metrics across a dataset:
@@ -167,6 +200,42 @@ results = runner.run(
 # Structured report
 report = BenchmarkRunner.report(results)
 ```
+
+### Gate and Repair Metrics
+
+When an `ExecutionGate` is supplied, `BenchmarkRunner` reports pass/fail metrics in addition to traditional scores:
+
+```python
+from src.evaluate.benchmark import BenchmarkRunner
+from src.evaluate.gate import ExecutionGate
+from src.generate.repair import SQLRepairer
+from src.llm.client import TeacherClient
+
+gate = ExecutionGate(schema_sql_path="tasks/sql_generation/schemas.sql")
+repairer = SQLRepairer(client=TeacherClient(), gate=gate, max_attempts=2)
+
+runner = BenchmarkRunner(
+    batch_size=8,
+    gate=gate,
+    repairer=repairer,
+    use_repair=True,
+)
+
+results = runner.run(model, tokenizer, test_data)
+report = BenchmarkRunner.report(results)
+print(report["gate_metrics"])
+print(report["repair_metrics"])
+```
+
+Key metrics:
+
+- `gate_pass_rate` — proportion of queries that passed the gate on the first try
+- `gate_final_pass_rate` — proportion that passed after any repairs
+- `repair_success_rate` — proportion of repair attempts that resulted in a passing query
+- `writer_only_pass_rate` — same as `gate_pass_rate`; writer performance without the fixer
+- `writer_plus_fixer_pass_rate` — proportion that passed after routing failures through the repairer
+
+These metrics are also logged to MLFlow via `src/train/monitor.py::log_gate_metrics` when a run is active.
 
 ### Comparing Two Models
 

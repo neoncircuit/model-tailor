@@ -47,6 +47,12 @@ Thumbs.db
 mlruns/
 mlflow.db
 
+# Benchmark results
+tasks/sql_generation/results/
+
+# Dashboard dev-server port file
+apps/backend-py/.dev-port
+
 # Logs
 *.log
 logs/

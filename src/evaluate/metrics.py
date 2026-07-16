@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import logging
 import re
-import sqlite3
 from typing import Callable
 
 import nltk
 import sqlparse
 from nltk.translate.bleu_score import SmoothingFunction, sentence_bleu
 from rouge_score import rouge_scorer
+
+from src.evaluate.gate import ExecutionGate
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +140,10 @@ def sql_execution_accuracy(
     Returns 1.0 if the (unordered) result sets match exactly, 0.0 otherwise.
     If either query fails to execute, returns 0.0.
 
+    This function delegates to :class:`src.evaluate.gate.ExecutionGate` so
+    that execution checking, error classification, and timeout handling live
+    in one place.
+
     Args:
         pred_sql: The predicted SQL query.
         target_sql: The gold/reference SQL query.
@@ -148,34 +153,14 @@ def sql_execution_accuracy(
     Returns:
         1.0 if the unordered result sets match, 0.0 otherwise.
     """
-
-    def _execute(sql: str, conn: sqlite3.Connection) -> set[tuple] | None:
-        try:
-            cursor = conn.execute(sql)
-            rows = cursor.fetchall()
-            return set(rows)
-        except Exception as exc:
-            logger.debug("SQL execution error: %s — query: %s", exc, sql[:200])
-            return None
-
-    try:
-        conn = sqlite3.connect(db_path, timeout=timeout)
-        # Limit how long a single statement can run.
-        conn.execute(f"PRAGMA busy_timeout = {int(timeout * 1000)}")
-    except sqlite3.Error as exc:
-        logger.warning("Could not connect to database %s: %s", db_path, exc)
-        return 0.0
-
-    try:
-        pred_result = _execute(pred_sql, conn)
-        target_result = _execute(target_sql, conn)
-    finally:
-        conn.close()
-
-    if pred_result is None or target_result is None:
-        return 0.0
-
-    return 1.0 if pred_result == target_result else 0.0
+    gate = ExecutionGate(
+        schema_sql_path=None,
+        db_path=db_path,
+        timeout=timeout,
+        allow_empty_result=True,
+    )
+    result = gate.check(pred_sql, target_sql)
+    return 1.0 if result.passed else 0.0
 
 
 # ---------------------------------------------------------------------------

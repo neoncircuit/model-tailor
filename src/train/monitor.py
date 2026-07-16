@@ -109,10 +109,29 @@ def setup_mlflow(config_path: str = "config/base.yaml") -> None:
         logger.info("MLFlow configured: uri=%s  experiment=%s", tracking_uri, experiment_name)
     except Exception as e:
         logger.warning(
-            "Could not connect to MLFlow server at %s: %s. Training will continue without MLFlow tracking.",
+            "Could not connect to MLFlow server at %s: %s. "
+            "Training will continue without MLFlow tracking.",
             tracking_uri,
             e,
         )
+
+
+def log_gate_metrics(metrics: dict[str, float], step: Optional[int] = None) -> None:
+    """Log gate and repair metrics to both MLFlow and WandB.
+
+    Metrics are expected to use the ``gate/`` and ``repair/`` prefixes
+    produced by ``src.evaluate.gate.GateMetrics.to_flat_dict()``.
+
+    Args:
+        metrics: Mapping of metric names to float values.
+        step: Optional global step number for MLFlow.
+    """
+    if not metrics:
+        return
+
+    _wandb_log(metrics)
+    _mlflow_log_metrics(metrics, step=step)
+    logger.info("Logged gate/repair metrics: %s", metrics)
 
 
 # ---------------------------------------------------------------------------

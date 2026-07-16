@@ -17,12 +17,8 @@ from typing import Any, Optional
 
 import yaml
 from datasets import Dataset
-from transformers import (
-    PreTrainedModel,
-    PreTrainedTokenizerBase,
-    TrainingArguments,
-)
-from trl import SFTTrainer, SFTConfig
+from transformers import PreTrainedModel, PreTrainedTokenizerBase
+from trl import SFTConfig, SFTTrainer
 
 from src.train.monitor import TrainingMonitor
 
@@ -233,7 +229,7 @@ class TrainingRunner:
         training_args = self._build_training_args()
 
         # Override eos_token to use tokenizer's default
-        if hasattr(training_args, 'eos_token'):
+        if hasattr(training_args, "eos_token"):
             training_args.eos_token = self.tokenizer.eos_token
 
         trainer = SFTTrainer(

@@ -20,6 +20,17 @@ generation:
     evol_instruct: 0.3          # Hard/expert complexity evolved from easy seeds
   temperature: 0.7
 
+  # Execution correctness gate (writer -> gate -> fixer -> gate loop)
+  execution_gate:
+    enabled: false
+    timeout: 5.0
+    allow_empty_result: true
+
+  repair:
+    enabled: false
+    max_attempts: 2
+    repair_batch_size: 5
+
   difficulty_distribution:
     easy: 0.3       # Single table, basic WHERE
     medium: 0.4     # JOINs, GROUP BY, HAVING
@@ -44,6 +55,7 @@ curation:
 
 evaluation:
   execution_accuracy: true   # Run SQL against DB and compare results
+  gate_pass_rate: true
   exact_match: true
   llm_judge: true
   judge_model: gpt-4o-mini

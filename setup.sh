@@ -35,6 +35,17 @@ pip install -r requirements.txt --quiet
 echo "Installing dev dependencies..."
 pip install pytest ruff --quiet
 
+echo "Installing dashboard backend dependencies..."
+pip install -r apps/backend-py/requirements.txt --quiet
+
+if command -v npm >/dev/null 2>&1; then
+    echo "Installing dashboard frontend dependencies..."
+    (cd apps/frontend && npm install --no-audit --no-fund)
+else
+    echo "WARNING: npm not found; skipping dashboard frontend install."
+    echo "         Install Node.js >= 18 and run: (cd apps/frontend && npm install)"
+fi
+
 # -----------------------------------------------------------------------
 # 4. Environment file
 # -----------------------------------------------------------------------
@@ -71,7 +82,7 @@ fi
 # -----------------------------------------------------------------------
 # 6. Create data directories
 # -----------------------------------------------------------------------
-mkdir -p data/raw data/curated data/formatted data/seeds models checkpoints
+mkdir -p data/raw data/curated data/formatted data/seeds models checkpoints tasks/sql_generation/results
 
 # -----------------------------------------------------------------------
 # 7. GPU check
@@ -106,6 +117,8 @@ python3 -c "from src.format import templates; print('src.format ......... OK')"
 python3 -c "from src.train import lora; print('src.train .......... OK')"
 python3 -c "from src.deploy import serve; print('src.deploy ......... OK')"
 python3 -c "import mlflow; print(f'mlflow {mlflow.__version__} ...... OK')"
+(cd apps/backend-py && PYTHONPATH=src python3 -c \
+    "from dashboard_api.main import create_app; print('dashboard_api ...... OK')")
 
 # Note: src.evaluate.metrics requires NLTK data download
 echo ""

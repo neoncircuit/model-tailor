@@ -32,8 +32,16 @@ flowchart TD
 
     subgraph generate["src/generate/"]
         direction LR
-        g_desc["Teacher LLM generates synthetic NL-SQL pairs"]
-        g_files["strategies.py — seed_expansion, self_instruct, evol_instruct\nquality.py — heuristic / syntax / LLM scoring\nbatch.py — async batching with concurrency control"]
+        g_writer["Writer (teacher LLM)\ngenerates NL-SQL pairs"]
+        g_gate["Execution Gate\nexecute + compare result sets"]
+        g_repair["Repair / Fixer\nteacher corrects failures"]
+        g_quality["quality.py — heuristic / syntax / LLM scoring"]
+        g_batch["batch.py — async batching with concurrency control"]
+        g_writer --> g_gate
+        g_gate -- "fail" --> g_repair
+        g_repair --> g_gate
+        g_gate -- "pass" --> g_quality
+        g_quality --> g_batch
     end
 
     subgraph curate["src/curate/"]
@@ -57,7 +65,7 @@ flowchart TD
     subgraph evaluate["src/evaluate/"]
         direction LR
         e_desc["Measure quality"]
-        e_files["metrics.py — BLEU, ROUGE, exact match, execution accuracy\njudge.py — LLM-as-judge with structured rubric\nbenchmark.py — full benchmark runner with comparison"]
+        e_files["metrics.py — BLEU, ROUGE, exact match, execution accuracy\ngate.py — deterministic execution correctness gate\njudge.py — LLM-as-judge with structured rubric\nbenchmark.py — full benchmark runner with gate/repair metrics"]
     end
 
     subgraph deploy["src/deploy/"]
@@ -94,6 +102,30 @@ It supports three providers:
 - `tasks/<name>.yaml` — Per-task configuration (generation, curation, evaluation settings)
 
 Configuration is loaded by each module as needed. There's no central config object — each module reads the YAML keys it cares about.
+
+## Deterministic Execution Gate
+
+The execution gate is the SQL-generation equivalent of the deterministic correctness gate described in the LinkedIn case study: a small, non-ML component that rejects any output whose claims cannot be verified against source evidence (here, the database schema).
+
+```mermaid
+flowchart LR
+    Writer["Writer (LLM)"] --> Gate["Execution Gate\nsrc/evaluate/gate.py"]
+    Gate -- "passed" --> Accept([Accepted])
+    Gate -- "failed" --> Repair["Repair / Fixer\nsrc/generate/repair.py"]
+    Repair --> Gate
+    Gate -- "still failed" --> Reject([Rejected])
+```
+
+The gate:
+
+1. Materialises a fresh SQLite database from the task schema.
+2. Executes the predicted SQL with a timeout.
+3. Classifies the outcome as `passed`, `syntax_error`, `execution_error`, `wrong_result`, `timeout`, `empty_result`, or `unsafe`.
+4. When a reference query is available, compares unordered result sets.
+
+The repair stage takes a failing query plus the gate feedback (status and error message) and asks the teacher model to return a corrected SQL query. The loop repeats until the query passes or the maximum number of attempts is reached. The reference `target_sql` is never exposed to the repair prompt; it is only used by the gate for result-set comparison.
+
+Metrics produced by the gate and repair loop are logged to MLFlow via `src/train/monitor.py::log_gate_metrics`, using keys prefixed with `gate/` and `repair/`.
 
 ## Design Principles
 

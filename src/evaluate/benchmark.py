@@ -17,8 +17,11 @@ import torch
 from tqdm import tqdm
 from transformers import PreTrainedModel, PreTrainedTokenizerBase
 
+from src.evaluate.gate import ExecutionGate
 from src.evaluate.judge import JudgeExample, JudgeResult, LLMJudge
 from src.evaluate.metrics import evaluate_batch
+from src.generate.repair import SQLRepairer
+from src.llm.client import TeacherClient
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +44,8 @@ class BenchmarkResults:
     category_scores: dict[str, dict[str, float]] = field(default_factory=dict)
     difficulty_scores: dict[str, dict[str, float]] = field(default_factory=dict)
     judge_scores: dict[str, float] = field(default_factory=dict)
+    gate_metrics: dict[str, float] = field(default_factory=dict)
+    repair_metrics: dict[str, float] = field(default_factory=dict)
     predictions: list[str] = field(default_factory=list)
     targets: list[str] = field(default_factory=list)
     elapsed_seconds: float = 0.0
@@ -51,7 +56,8 @@ class BenchmarkResults:
 
         Returns:
             Dictionary containing model name, example count, timing,
-            metric scores, category/difficulty breakdowns, and judge scores.
+            metric scores, category/difficulty breakdowns, judge scores,
+            and gate/repair metrics.
         """
         return {
             "model_name": self.model_name,
@@ -61,6 +67,8 @@ class BenchmarkResults:
             "by_category": self.category_scores,
             "by_difficulty": self.difficulty_scores,
             "judge": self.judge_scores,
+            "gate": self.gate_metrics,
+            "repair": self.repair_metrics,
         }
 
 
@@ -160,6 +168,10 @@ class BenchmarkRunner:
         use_judge: Whether to also run LLM-as-judge evaluation
             (default False).
         judge_concurrency: Parallelism for LLM judge calls (default 4).
+        gate: Optional ``ExecutionGate`` for execution correctness checks.
+        repairer: Optional ``SQLRepairer`` to fix failing predictions.
+        client: Optional teacher client used to create a repairer.
+        use_repair: If True, route failing predictions through the repairer.
     """
 
     def __init__(
@@ -170,16 +182,53 @@ class BenchmarkRunner:
         db_path: str | None = None,
         use_judge: bool = False,
         judge_concurrency: int = 4,
+        gate: ExecutionGate | None = None,
+        repairer: SQLRepairer | None = None,
+        client: TeacherClient | None = None,
+        use_repair: bool = False,
     ) -> None:
+        """Initialize the benchmark runner.
+
+        Args:
+            batch_size: Inference batch size (default 8).
+            max_new_tokens: Maximum tokens to generate per example (default 256).
+            metrics: Which traditional metrics to compute. Defaults to
+                ``["exact_match", "bleu", "rouge"]``.
+            db_path: Path to SQLite database for execution accuracy.
+            use_judge: Whether to also run LLM-as-judge evaluation
+                (default False).
+            judge_concurrency: Parallelism for LLM judge calls (default 4).
+            gate: Optional ``ExecutionGate`` for pass/fail and repair metrics.
+            repairer: Optional ``SQLRepairer`` to fix failing predictions.
+            client: Optional teacher client used to create a repairer when
+                ``use_repair`` is True but ``repairer`` is not provided.
+            use_repair: If True, route failing predictions through the repairer
+                and report writer-only vs writer+fixer pass rates.
+        """
         self.batch_size = batch_size
         self.max_new_tokens = max_new_tokens
         self.metrics = metrics or ["exact_match", "bleu", "rouge"]
         self.db_path = db_path
         self.use_judge = use_judge
         self.judge_concurrency = judge_concurrency
+        self.gate = gate
+        self.use_repair = use_repair
 
         if "exec_accuracy" in self.metrics and self.db_path is None:
             raise ValueError("db_path is required when exec_accuracy is in metrics")
+
+        if use_repair and self.gate is None:
+            raise ValueError("use_repair requires an ExecutionGate")
+
+        if repairer is not None:
+            self.repairer = repairer
+        elif use_repair and client is not None:
+            self.repairer = SQLRepairer(client=client, gate=self.gate)
+        else:
+            self.repairer = None
+
+        if use_repair and self.repairer is None:
+            raise ValueError("use_repair requires a SQLRepairer or a TeacherClient")
 
     # -- main entry point ---------------------------------------------------
 
@@ -244,12 +293,30 @@ class BenchmarkRunner:
         if self.use_judge:
             judge_summary = self._run_judge(test_data, predictions, targets)
 
+        # --- Execution gate + repair metrics (optional) ---
+        gate_summary: dict[str, float] = {}
+        repair_summary: dict[str, float] = {}
+        if self.gate is not None:
+            gate_summary, repair_summary = self._run_gate_analysis(test_data, predictions, targets)
+            overall_scores["gate_pass_rate"] = gate_summary.get("gate/pass_rate_first_try", 0.0)
+            overall_scores["gate_final_pass_rate"] = gate_summary.get("gate/pass_rate_final", 0.0)
+            if self.use_repair:
+                overall_scores["repair_success_rate"] = repair_summary.get(
+                    "repair/success_rate", 0.0
+                )
+                overall_scores["writer_only_pass_rate"] = overall_scores["gate_pass_rate"]
+                overall_scores["writer_plus_fixer_pass_rate"] = repair_summary.get(
+                    "repair/writer_plus_fixer_pass_rate", 0.0
+                )
+
         results = BenchmarkResults(
             model_name=model_name,
             metric_scores=overall_scores,
             category_scores=category_scores,
             difficulty_scores=difficulty_scores,
             judge_scores=judge_summary,
+            gate_metrics=gate_summary,
+            repair_metrics=repair_summary,
             predictions=predictions,
             targets=targets,
             elapsed_seconds=elapsed,
@@ -341,6 +408,74 @@ class BenchmarkRunner:
             "num_judged": valid_count,
             "num_errors": len(results) - valid_count,
         }
+
+    # -- execution gate + repair analysis -----------------------------------
+
+    def _run_gate_analysis(
+        self,
+        test_data: list[TestRecord],
+        predictions: list[str],
+        targets: list[str],
+    ) -> tuple[dict[str, float], dict[str, float]]:
+        """Run the execution gate and optional repairer over predictions.
+
+        Args:
+            test_data: Test records containing at least ``"nl"`` or
+                ``"natural_language"`` and ``"sql"``.
+            predictions: Model-generated SQL strings.
+            targets: Gold reference SQL strings.
+
+        Returns:
+            A tuple of ``(gate_metrics_flat, repair_metrics_flat)``.  When no
+            repairer is configured the repair dict is empty.
+        """
+        records: list[dict] = []
+        for rec, pred, tgt in zip(test_data, predictions, targets):
+            nl = rec.get("nl") or rec.get("natural_language", "")
+            records.append(
+                {
+                    "natural_language": nl,
+                    "sql": pred,
+                    "target_sql": tgt,
+                }
+            )
+
+        initial_results = self.gate.check_batch(records)
+        gate_metrics = self.gate.compute_metrics(initial_results)
+
+        repair_summary: dict[str, float] = {}
+        if self.repairer is not None:
+            repaired_passed = 0
+            repair_attempts = 0
+            repair_successes = 0
+
+            for record, initial_result in zip(records, initial_results):
+                if initial_result.passed:
+                    continue
+                repair_attempts += 1
+                repair_result = self.repairer.repair(record)
+                if repair_result.final_result.passed:
+                    repaired_passed += 1
+                    repair_successes += 1
+
+            total = len(records)
+            final_passed = gate_metrics.passed_first_try + repaired_passed
+            gate_metrics.final_passed = final_passed
+            gate_metrics.final_failed = total - final_passed
+            gate_metrics.repair_attempts = repair_attempts
+            gate_metrics.repair_success = repair_successes
+            gate_metrics.repair_failed = repair_attempts - repair_successes
+
+            repair_summary = {
+                "repair/attempts": float(repair_attempts),
+                "repair/success": float(repair_successes),
+                "repair/success_rate": (
+                    repair_successes / repair_attempts if repair_attempts > 0 else 0.0
+                ),
+                "repair/writer_plus_fixer_pass_rate": final_passed / total if total > 0 else 0.0,
+            }
+
+        return gate_metrics.to_flat_dict(), repair_summary
 
     # -- comparison ---------------------------------------------------------
 
@@ -449,5 +584,17 @@ class BenchmarkRunner:
 
         if results.judge_scores:
             report_dict["llm_judge"] = results.judge_scores
+
+        if results.gate_metrics:
+            report_dict["gate_metrics"] = {
+                k: round(v, 4) if isinstance(v, float) else v
+                for k, v in results.gate_metrics.items()
+            }
+
+        if results.repair_metrics:
+            report_dict["repair_metrics"] = {
+                k: round(v, 4) if isinstance(v, float) else v
+                for k, v in results.repair_metrics.items()
+            }
 
         return report_dict

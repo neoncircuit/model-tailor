@@ -18,6 +18,7 @@ Or component-by-component:
 from src.generate.batch import BatchConfig, BatchGenerator, BatchResult, run_generation
 from src.generate.few_shot import FewShotFormatter, SeedLoader
 from src.generate.quality import QualityChecker, QualityResult
+from src.generate.repair import RepairResult, SQLRepairer
 from src.generate.strategies import (
     EvolInstruct,
     GeneratedExample,
@@ -41,6 +42,9 @@ __all__ = [
     # Quality
     "QualityChecker",
     "QualityResult",
+    # Repair
+    "SQLRepairer",
+    "RepairResult",
     # Batch
     "BatchGenerator",
     "BatchConfig",

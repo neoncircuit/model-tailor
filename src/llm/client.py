@@ -70,8 +70,7 @@ class TeacherClient:
 
             # Explicitly use real Anthropic API, ignore ANTHROPIC_BASE_URL env var
             return Anthropic(
-                api_key=os.getenv("ANTHROPIC_API_KEY"),
-                base_url="https://api.anthropic.com"
+                api_key=os.getenv("ANTHROPIC_API_KEY"), base_url="https://api.anthropic.com"
             )
         elif self.provider == "gemini":
             from google import genai
@@ -82,17 +81,15 @@ class TeacherClient:
 
             # GLM (Z.ai) uses OpenAI-compatible API
             return OpenAI(
-                api_key=os.getenv("GLM_API_KEY"),
-                base_url="https://open.bigmodel.cn/api/paas/v4/"
+                api_key=os.getenv("GLM_API_KEY"), base_url="https://open.bigmodel.cn/api/paas/v4/"
             )
         elif self.provider == "ollama":
             from openai import OpenAI
 
             return OpenAI(base_url=f"{self._ollama_base_url}/v1", api_key="ollama")
         else:
-            raise ValueError(
-                f"Unknown provider: {self.provider}. Supported: openai, anthropic, gemini, glm, ollama"
-            )
+            supported = "openai, anthropic, gemini, glm, ollama"
+            raise ValueError(f"Unknown provider: {self.provider}. Supported: {supported}")
 
     def complete(
         self, messages: list[Message], temperature: float = None, max_tokens: int = None

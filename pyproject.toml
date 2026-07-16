@@ -14,3 +14,13 @@ select = ["E", "F", "I", "W"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+filterwarnings = [
+    # torchao issues deprecation warnings for internal dtype import paths used by
+    # upstream libraries (unsloth / transformers).  Not actionable from this repo.
+    "ignore:Importing.*from torchao\\.dtypes:DeprecationWarning",
+    # sentencepiece / tokenizers use SWIG-generated types that trigger these
+    # deprecation warnings on Python 3.12.  They are harmless external noise.
+    "ignore:builtin type SwigPyPacked has no __module__ attribute:DeprecationWarning",
+    "ignore:builtin type SwigPyObject has no __module__ attribute:DeprecationWarning",
+    "ignore:builtin type swigvarlink has no __module__ attribute:DeprecationWarning",
+]

@@ -547,3 +547,59 @@ When hardware constraints prevent full comparison, teacher-only evaluation still
 - `10_comparison_from_results.ipynb` - Compare pre-saved results
 
 This allows progress on limited hardware with clear documentation of constraints.
+
+---
+
+## Dashboard Tooling and Dev-Server Automation (2026-07-16)
+
+### Confirm the UI Stack Before Writing Code
+The first dashboard iteration was scaffolded in Streamlit, then discarded when the requirement turned out to be Next.js + FastAPI under `apps/`. A one-line stack confirmation up front would have saved a full rewrite. Always pin the framework, folder layout, and deployment model before scaffolding UI work.
+
+### FastAPI Path Converters for Slashed Keys
+Metric keys like `train/loss` contain slashes, so a plain `{metric_key}` route parameter silently 404s. Use `{metric_key:path}` and do not URL-encode the key on the client. Symptom: tests pass for keys without slashes and fail only for namespaced ones.
+
+### Dev-Server Port Delegation Needs a Handshake
+When two dev servers delegate ports independently, the frontend must learn the backend's actual port. Pattern used here:
+1. Backend probes from 8000, writes the chosen port to `apps/backend-py/.dev-port`.
+2. Frontend probes from 3000, then polls `.dev-port` every 250 ms for up to 10 s before falling back to `http://localhost:8000` (override with `DASHBOARD_BACKEND_URL`).
+
+Without the poll, a startup race makes the frontend proxy to a stale default whenever it reads the file before the backend writes it.
+
+### `pkill -f` Can Kill the Invoking Shell
+`pkill -f "dev-with-port"` matches the pattern against every process command line — including the bash wrapper running the pkill itself (exit code 144, shell terminated). Use PID-precise kills instead:
+
+```bash
+ss -tlnp | grep ':8001' | grep -oP 'pid=\K[0-9]+' | xargs -r kill
+```
+
+### Bash Tool Working Directory Persists Between Calls
+A `cd apps/frontend` in one shell command persists into later calls, so a subsequent relative path like `apps/frontend` fails with "No such file or directory". Use absolute paths (or explicit `cd` back to the project root) in every compound command.
+
+---
+
+## Dashboard Storage Scanning (2026-07-16)
+
+### `psutil.disk_partitions(all=True)` is Required for WSL Drive Visibility
+
+On WSL, `psutil.disk_partitions(all=False)` hides Windows `drvfs` mounts such as
+`/mnt/c` and `/mnt/d`. To surface those drives, the scanner must call
+`disk_partitions(all=True)` and then filter out pseudo filesystems explicitly.
+
+### External Drives Should Be Indicated, Not Hidden
+
+Hiding external/removable drives entirely (e.g. thumbdrives) makes the UI look
+incomplete and can confuse users who expect to see all attached storage. A safer
+pattern is to list every drive and label it as built-in or external:
+
+- Built-in badge: sky/blue, with the bus type (NVMe, SATA, etc.) when known.
+- External badge: amber/orange, with the bus type (USB, UASP) or "Unknown" when
+  the classification is uncertain.
+
+Defaulting unknown platforms and uncertain classifications to external avoids
+silently mislabelling removable media as built-in.
+
+### Cache Expensive Platform Lookups
+
+Mapping drive letters to physical bus types on WSL/Windows requires spawning
+PowerShell. Caching the result for ~30 seconds prevents that cost from being paid
+on every 2-second frontend poll.

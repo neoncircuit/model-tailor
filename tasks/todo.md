@@ -259,3 +259,182 @@ curl -X POST http://localhost:8000/generate_sql \
 - [x] Full documentation (architecture, config, getting-started, guides)
 - [x] CI/CD pipeline (ruff lint + 96 unit tests passing)
 - [x] Config updated: teacher=claude-sonnet-4-6, batch_size=2, max_seq_length=2048
+
+---
+
+## LinkedIn Gate + Repair Iteration (In Progress)
+
+Implementing the writer → gate → fixer → gate loop inspired by the recent
+LinkedIn case study. Scope is staged: gate first, then repair, then batch
+integration and DPO groundwork.
+
+- [x] Task 1 — Implement `ExecutionGate` (`src/evaluate/gate.py`)
+- [x] Task 2 — Refactor `sql_execution_accuracy` to use `ExecutionGate`
+- [x] Task 3 — Add unit tests for `ExecutionGate`
+- [x] Task 4 — Implement `SQLRepairer` (`src/generate/repair.py`)
+- [x] Task 5 — Integrate gate + repair into `BatchGenerator`
+- [x] Task 6 — Add pass/fail metrics and MLFlow logging
+- [x] Task 7 — Update docs and run CI checks
+
+### Review — LinkedIn Gate + Repair Iteration
+
+**Status**: Complete. All 7 tasks finished.
+
+**What was delivered**:
+- `src/evaluate/gate.py` — reusable `ExecutionGate` with pass/fail classification and `GateMetrics`.
+- `src/generate/repair.py` — `SQLRepairer` that uses gate feedback to ask the teacher for corrected SQL.
+- `src/generate/batch.py` — writer → gate → fixer → gate loop integrated into `BatchGenerator`.
+- `src/evaluate/benchmark.py` — benchmark runner reports `gate_pass_rate`, `writer_only_pass_rate`, and `writer_plus_fixer_pass_rate`.
+- `src/train/monitor.py` — `log_gate_metrics()` helper for MLFlow/WandB logging.
+- `config/tasks/sql_generation.yaml` — `execution_gate` and `repair` sections added.
+- Documentation updated in `docs/architecture.md`, `docs/generation-strategies.md`, and `docs/evaluation-guide.md` with mermaid flow diagrams.
+- Unit tests added: `tests/test_gate.py`, `tests/test_repair.py`, `tests/test_batch_integration.py`, `tests/test_benchmark_gate.py`.
+
+**CI results**:
+```bash
+make check
+```
+- ruff lint: passed
+- ruff format check: passed (31 files)
+- pytest: 133 passed, 5 warnings
+
+**Notes**:
+- Gate and repair are disabled by default in `config/tasks/sql_generation.yaml` (`enabled: false`) to keep generation API-cost-free by default.
+- DPO / minimal-pair groundwork remains a future phase, per the original plan.
+
+---
+
+## Local Dashboard Iteration (Next.js + FastAPI)
+
+Local configuration/performance dashboard replacing the discarded Streamlit
+prototype. Motivation: no GCP or Anthropic console access, so MLflow runs,
+benchmark reports, and RAM/GPU usage must be tracked locally. Plan:
+`~/.claude/plans/proud-questing-kitten.md`.
+
+- [x] Stage 0 — Remove `src/dashboard/`, drop `streamlit`/`psutil` from root requirements
+- [x] Stage 1 — Backend data layer (`apps/backend-py/src/dashboard_api/data.py`, `system.py`, `models.py`)
+- [x] Stage 2 — FastAPI app + 9 passing tests (`main.py`, `tests/test_api.py`)
+- [x] Stage 3 — `run_gate_benchmark.py` persists JSON reports to `tasks/sql_generation/results/` by default
+- [x] Stage 4 — Next.js frontend (`apps/frontend/`): Overview, Training, Benchmarks, System, Configs pages
+- [x] Stage 5 — Makefile targets, READMEs, `docs/dashboard-guide.md`, setup.sh wiring, lessons captured
+
+### Review — Local Dashboard Iteration
+
+**Status**: Complete. All 6 stages finished.
+
+**What was delivered**:
+- `apps/backend-py/` — FastAPI service (`/health`, `/config`, `/runs`,
+  `/runs/{id}/metrics/{key:path}`, `/benchmarks`, `/benchmarks/{file}`,
+  `/system`, `/configs`) with port-delegating dev launcher and `.dev-port`
+  handshake file.
+- `apps/frontend/` — Next.js 15 + TypeScript + Tailwind + Recharts frontend
+  with port-delegating launcher that polls `.dev-port` to find the backend.
+- `scripts/run_gate_benchmark.py` — always writes a rich JSON report; defaults
+  to `tasks/sql_generation/results/<model-slug>_<YYYYMMDD_HHMMSS>.json`.
+- Root `Makefile` — `dashboard`, `dashboard-backend`, `dashboard-frontend`,
+  `backend-lint`, `backend-test`; `check` now covers the backend too.
+- `setup.sh` — installs dashboard backend requirements and (when npm exists)
+  frontend dependencies; verifies `dashboard_api` imports.
+- `docs/dashboard-guide.md` — architecture and port-delegation diagrams,
+  usage, troubleshooting.
+
+**Verification results**:
+- Backend: 9/9 pytest tests pass; `ruff check` clean on src/scripts/tests.
+- Frontend: `npm run build` green (Next.js 15, all 5 routes static).
+- End-to-end: with ports 3000 and 8000 deliberately occupied, backend delegated
+  to 8001 and frontend to 3001; proxied `/api/health`, `/api/config`,
+  `/api/system` (live RTX 3070 Ti snapshot), and `/api/benchmarks` all
+  returned correct data.
+
+**Notes**:
+- Streamlit code and dependencies fully removed; `psutil` now lives only in
+  `apps/backend-py/requirements.txt`.
+- `apps/backend-py/.dev-port` is git-ignored; benchmark results dir stays
+  git-ignored as before.
+
+---
+
+## Local Dashboard Storage Refinement
+
+Add storage scanning to the `/system` snapshot and show built-in vs external
+indicators instead of hiding removable drives.
+
+- [x] Add `StorageDrive` model and `storage` field to `SystemSnapshot`
+- [x] Implement `dashboard_api/storage.py` with platform-aware classification
+- [x] Wire `snapshot_storage()` into `dashboard_api/system.py`
+- [x] Add TypeScript `StorageDrive` type and render storage in `SystemCards.tsx`
+- [x] Update `/system` mock in `tests/test_api.py` and add `tests/test_storage.py`
+- [x] Update `docs/dashboard-guide.md` with storage architecture and classification notes
+- [x] Run verification checks (`ruff`, `pytest`, `npm run build`, `make check`, smoke test)
+
+### Review — Local Dashboard Storage Refinement
+
+**Status**: Complete.
+
+**What was delivered**:
+- `dashboard_api/storage.py` — cross-platform storage scanner using
+  `psutil.disk_partitions(all=True)`, pseudo-filesystem filtering, and
+  built-in/external classification.
+- `dashboard_api/system.py` — includes the storage array in every `/system` snapshot.
+- `SystemCards.tsx` — renders each drive with capacity, usage bar, and a
+  **Built-in** (sky) or **External** (amber) badge.
+- Backend tests for filtering, WSL/Windows bus-type classification, Linux
+  removable/transport classification, PowerShell caching, and unknown-platform
+  defaults.
+- Documentation updates with mermaid diagram changes and a storage-classification
+  section.
+
+**Verification**:
+- Backend lint/tests: `make check` passed.
+  - Root pytest: 133 passed.
+  - Backend pytest: 23 passed (9 API + 14 storage).
+  - `ruff check` clean for both root and backend.
+- Frontend build: `npm run build` succeeded (Next.js 15, static pages generated).
+- Smoke test: `snapshot_system()` returned a non-empty `storage` array on the WSL
+  host with correct built-in/external indicators:
+  - `/mnt/c` and `/mnt/d` → built-in SATA.
+  - `/mnt/f` → external USB.
+  - WSL rootfs/snap mounts → built-in WSL.
+- A live `/system` HTTP request was also verified through a running Uvicorn
+  instance; the endpoint returned the storage payload successfully.
+
+---
+
+## Local Dashboard Storage Safety Hardening
+
+Ensure the storage scanner cannot hang the server, spawn a subprocess storm, or
+overload the host.
+
+- [x] Add per-partition disk-usage timeout in `dashboard_api/storage.py`
+- [x] Add 5-second storage snapshot cache
+- [x] Add 30-second per-device `lsblk` transport cache
+- [x] Run `snapshot_system()` in a thread with 5-second timeout in `/system`
+- [x] Add single-flight `asyncio.Lock` to the `/system` route
+- [x] Add storage cache/timeout tests
+- [x] Add `/system` timeout test
+- [x] Update `docs/dashboard-guide.md` with caching/timeout notes
+- [x] Run verification checks (`ruff`, `pytest`, `npm run build`, `make check`, smoke test)
+
+### Review — Local Dashboard Storage Safety Hardening
+
+**Status**: Complete.
+
+**What was delivered**:
+- `dashboard_api/storage.py` — storage snapshot TTL cache, `lsblk` transport
+  cache, and thread-pool disk-usage reads with a 1-second per-partition timeout.
+- `dashboard_api/main.py` — `/system` now runs `snapshot_system()` in a worker
+  thread guarded by `asyncio.wait_for(timeout=5.0)` and an `asyncio.Lock`;
+  timeouts return HTTP 503.
+- Backend tests for cache hits/expiry, disk-usage timeout skipping, and route-level
+  timeout returning 503.
+- Documentation updates in `docs/dashboard-guide.md` describing the caching and
+  timeout safeguards.
+
+**Verification**:
+- Backend lint/tests: `make check` passed.
+  - Root pytest: 133 passed.
+  - Backend pytest: 29 passed (9 API + 20 storage).
+  - `ruff check` clean for both root and backend.
+- Frontend build: `npm run build` succeeded (Next.js 15, static pages generated).
+- Smoke test: `snapshot_system()['storage']` returned a non-empty storage array
+  on the WSL host with correct built-in/external indicators.
